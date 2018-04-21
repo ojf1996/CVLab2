@@ -5,6 +5,7 @@ import android.content.ContentResolver;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.Config;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
@@ -19,6 +20,7 @@ import android.util.Log;
 import android.util.DisplayMetrics;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.List;
 
 
 import java.io.FileNotFoundException;
@@ -31,24 +33,168 @@ public class MainActivity extends AppCompatActivity
     protected static Bitmap bitmap = null;
 
     //转为灰度图
-    protected Bitmap ARGBConvert2Gray(Bitmap origin)
+    protected int ARGBConvert2Gray(Bitmap origin, int x, int y)
     {
         int width = origin.getWidth();
         int height = origin.getHeight();
-        Bitmap bitmap = origin.copy(Config.ARGB_8888,true);
-        for (int i = 0; i < width; i++) {
-            for (int j = 0; j < height; j++) {
-                int col = bitmap.getPixel(i, j);
-                int alpha = col & 0xFF000000;
-                int red = (col & 0x00FF0000) >> 16;
-                int green = (col & 0x0000FF00) >> 8;
-                int blue = (col & 0x000000FF);
-                int gray = (int) (red * 0.3 + green * 0.59 + blue * 0.11);
-                int newColor = alpha | (gray << 16) | (gray << 8) | gray;
-                bitmap.setPixel(i, j, newColor);
+        if(x >= width || y >= height)
+            return 0;
+        int col = origin.getPixel(x, y);
+        int red = (col & 0x00FF0000) >> 16;
+        int green = (col & 0x0000FF00) >> 8;
+        int blue = (col & 0x000000FF);
+        int gray = (int) (red * 0.3 + green * 0.59 + blue * 0.11);
+
+        return gray;
+    }
+
+    protected float getEdgeVariance(Bitmap origin)
+    {
+        float varianceSquared = 0.0f;
+        int width = origin.getWidth();
+        int height = origin.getHeight();
+        int time = 0;
+        int size = Math.min(width * height, 1000);
+        for(time = 0; time < size; ++time)
+        {
+            int x = (int)(Math.random() * width);
+            int y = (int)(Math.random() * height);
+
+            int col = origin.getPixel(x, y);
+            int r = (col & 0x00FF0000) >> 16;
+            int g = (col & 0x0000FF00) >> 8;
+            int b = (col & 0x000000FF);
+
+            for(int i = -1; i < 2 && y + i <height && y + i >= 0; ++i)
+            {
+                for(int j = 0; j < 2 && x + j < width && x + j >=0; ++j)
+                {
+                    int ncol = origin.getPixel(x + j, y + i);
+                    int nr = (ncol & 0x00FF0000) >> 16;
+                    int ng = (ncol & 0x0000FF00) >> 8;
+                    int nb = (ncol & 0x000000FF);
+
+                    varianceSquared+= (b-nb)*(b-nb) + (g-ng)*(g-ng) + (r-nr)*(r-nr);
+                }
             }
         }
-        return bitmap;
+
+        varianceSquared /= (time * 1.0);
+        return varianceSquared;
+    }
+    //实现图割
+    protected Bitmap graphcut(Bitmap origin)
+    {
+        Log.v("bitmap",origin.toString());
+        Log.v("init","=================================");
+        //////////////////////////////////////////////
+        // 进行预处理，包括获取种子点，转化灰度信息 //
+        //////////////////////////////////////////////
+        List<Point> obj = ((ScribbleView)findViewById(R.id.imageView)).mask_;
+        List<Point> bkg = ((ScribbleView)findViewById(R.id.imageView)).mask_bkg;
+        Log.v("init done","=================================");
+        Log.v("compute","=================================");
+        int width = origin.getWidth();
+        int height = origin.getHeight();
+        float varianceSquared = getEdgeVariance(origin);
+        Log.v("done","=================================");
+        //double EDGE_STRENGTH_WEIGHT = 0.95f;
+        //创建图
+        Graph_ graph = new Graph_(width * height + 2);
+        //初始化
+        graph.init();
+        Log.v("init done","=================================");
+        Log.v("init edge","=================================");
+        int col,ncol;
+        int r,g,b,nr,ng,nb;
+        double currEdgeStrength,currDist;
+        short cap;
+        int si,sj,ni,nj;
+        int index,nNodeId;
+        //为每一条边赋值，因为是双向赋值，所以只对上，右上，右下赋值，形成8邻域
+        for(int j = 0; j < height; ++j)
+        {
+            for(int i =0; i < width; ++i)
+            {
+                index = j * width + i;
+
+                col = origin.getPixel(i, j);
+                r = (col & 0x00FF0000) >> 16;
+                g = (col & 0x0000FF00) >> 8;
+                b = (col & 0x000000FF);
+
+                //不考虑边缘点的影响
+                for(sj = -1; sj <2 && sj + i < height && sj + i >= 0; sj++)
+                {
+                    nj = sj + j;
+
+                    if(nj < 0 || nj >= height)
+                        continue;
+
+                    for(si = 0; si < 2; si++) {
+                        ni = si + i;
+                        if (ni < 0 || ni >= width)
+                            continue;
+                        if (si >= 0 && sj == 0)//不计算本身和下方
+                            continue;
+                        nNodeId = (j + sj) * width + (i + si);
+
+                        ncol = origin.getPixel(i + si, j + sj);
+                        nr = (ncol & 0x00FF0000) >> 16;
+                        ng = (ncol & 0x0000FF00) >> 8;
+                        nb = (ncol & 0x000000FF);
+
+                        currEdgeStrength = Math.exp(-((b - nb) * (b - nb) + (g - ng) * (g - ng) + (r - nr) * (r - nr)) / (2 * varianceSquared));
+                        currDist = Math.sqrt((float) si * (float) si + (float) sj * (float) sj);
+
+                        currEdgeStrength = currEdgeStrength / currDist;
+
+                        cap = (short)(Math.ceil(currEdgeStrength * 1000 + 0.5));
+
+                        graph.addEdge(index, nNodeId, cap, cap);
+                    }
+                }
+            }
+        }
+        Log.v("init done","=================================");
+        Log.v("init seed","=================================");
+        //初始化种子点
+        int indexOfSource = width * height;
+        int indexOfSink = indexOfSource + 1;
+
+        int x,y,i;
+        for(i = 0; i < obj.size(); ++i)
+        {
+            x = obj.get(i).x;
+            y = obj.get(i).y;
+            graph.addEdge(y * width + x,indexOfSource,Short.MAX_VALUE, Short.MAX_VALUE);
+        }
+
+        for(i = 0; i < bkg.size(); ++i)
+        {
+            x = bkg.get(i).x;
+            y = bkg.get(i).y;
+            graph.addEdge( y * width + x,indexOfSink,Short.MAX_VALUE, Short.MAX_VALUE);
+        }
+
+        Log.v("init done","=================================");
+        float flow = graph.maxflow(indexOfSource,indexOfSink);
+        Log.v("maxflow","=================================");
+        Log.v("flow",Float.toString(flow));
+        Log.v("maxflow done","=================================");
+        //可视化
+        Bitmap res = origin.copy(Config.ARGB_8888,true);
+        for(i=0; i < height; ++i)
+        {
+            for(int j =0; j < width; ++j)
+            {
+                if(graph.whatSegment(i * width + j))
+                    res.setPixel(j,i, Color.GREEN);
+            }
+        }
+        Log.v("visualize done","=================================");
+        //解锁
+        return res;
     }
 
     //计算采样的次数
@@ -119,7 +265,7 @@ public class MainActivity extends AppCompatActivity
 
         //计算降采样的程度
 
-        ops.inSampleSize = calculateInSampleSize(ops,screenW,screenH);
+        ops.inSampleSize = calculateInSampleSize(ops,400,400);
 
         //通过降采样解码
         ops.inJustDecodeBounds = false;
@@ -171,10 +317,10 @@ public class MainActivity extends AppCompatActivity
     private class imageProcessTask extends AsyncTask<Bitmap,Void,Bitmap>
     {
         protected Bitmap doInBackground(Bitmap... bitmaps) {
-            return ARGBConvert2Gray(bitmaps[0]);
+            return graphcut(bitmaps[0]);
         }
-
-        protected void onPostExecute(Bitmap res) {
+        protected void onPostExecute(Bitmap res)
+        {
             ScribbleView view = findViewById(R.id.imageView);
             view.setSourceImage(res);
         }
@@ -222,12 +368,9 @@ public class MainActivity extends AppCompatActivity
     //启动图片处理
     public void startImageProcess(View view)
     {
-        /*
-        if(bitmap != null)
-        {
-            new imageProcessTask().execute(bitmap);
+        if(bitmap != null) {
+            ((ScribbleView) findViewById(R.id.imageView)).setSourceImage(graphcut(bitmap));
         }
-        */
     }
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data)
@@ -254,8 +397,6 @@ public class MainActivity extends AppCompatActivity
         }
         super.onActivityResult(requestCode, resultCode, data);
     }
-
-
 
 
 }
