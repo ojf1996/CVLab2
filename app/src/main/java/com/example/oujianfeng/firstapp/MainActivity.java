@@ -21,6 +21,7 @@ import android.util.DisplayMetrics;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Vector;
 
 
 import java.io.FileNotFoundException;
@@ -31,6 +32,18 @@ public class MainActivity extends AppCompatActivity
     public static final int SELECT_IMAGE = 0;
     public static final String STARTCUT = "start cutting the inmage";
     protected static Bitmap bitmap = null;
+
+    private Vector<Integer> path;
+    private Graph graph;
+    private Vector<Node> activeNodes;
+    private Vector<Node> neighbors;
+    private Node node;
+    private Node neighbor;
+
+    private Vector<Node> orphans;
+    private Node orphan;
+
+
 
     //转为灰度图
     protected int ARGBConvert2Gray(Bitmap origin, int x, int y)
@@ -197,6 +210,142 @@ public class MainActivity extends AppCompatActivity
         return res;
     }
 
+    protected Vector<Integer> Growth()
+    {
+       while(activeNodes.size() > 0) {
+        node = graph.PickActiveNode();
+        neighbors = graph.GetAllNeighbors(node);
+        //遍历邻居
+        for(int i = 0; i < neighbors.size(); i++) {
+            neighbor = neighbors.get(i);
+            if(graph.GetResidualWeight(node, neighbor) > 0) {
+                if(neighbor.GetTreeType() == TreeType.Free) {
+                    //不再添加已经是Passive的点
+                    if(neighbor.GetState() == State.None) {
+                        neighbor.SetTreeType(node.GetTreeType());
+                        neighbor.SetParent(node);
+                        graph.AddActiveNode(neighbor, "Growth");
+                    }
+                }else {
+                    if(neighbor.GetTreeType() != node.GetTreeType()) {
+//							System.out.println(neighbor.GetPosition() + " " + neighbor.GetTreeType());
+//							System.out.println(node.GetPosition() + " " + node.GetTreeType());
+                        return graph.GetPath(neighbor, node);
+                    }
+                }
+
+                //graph.ShowMask();
+            }
+        }
+        //移除活跃点
+        graph.RemoveActiveNode(node);
+    }
+        //没有找到路径
+        return null;
+    }
+
+    protected void Augmentation(Vector<Integer> path) {
+        //System.out.println("Augmention");
+
+        double bottleneck = graph.GetBottleneck(path);
+        graph.UpdateResidualWeight(bottleneck, path);
+    }
+
+    protected void Adoption() {
+        while(orphans.size() > 0) {
+            orphan = graph.PickOrphan();
+            graph.ProcessOrphan(orphan);
+        }
+    }
+
+    //another way to 图割
+    protected Bitmap graphcutB(Bitmap origin)
+    {
+        //参数初始化
+        ((ScribbleView)findViewById(R.id.imageView)).lock.lock();
+
+        List<Point> obj = ((ScribbleView)findViewById(R.id.imageView)).mask_;
+        List<Point> bkg = ((ScribbleView)findViewById(R.id.imageView)).mask_bkg;
+
+        int width = origin.getWidth();
+        int height = origin.getHeight();
+
+        int[][]  grayImage = new int[height][width];
+        int i = 0, j = 0;
+        int r,g,b,col;
+        Log.v("init","convert to gray level");
+        //获取灰度图
+        for(i = 0; i < height; ++i)
+        {
+            for(j = 0; j < width; ++j)
+            {
+                col = origin.getPixel(j, i);
+                r = (col & 0x00FF0000) >> 16;
+                g = (col & 0x0000FF00) >> 8;
+                b = (col & 0x000000FF);
+                grayImage[i][j] = (int) (r * 0.3 + g * 0.59 + b * 0.11);
+            }
+        }
+        Log.v("init","graph");
+        //实例化图
+        graph = new Graph(height,width,grayImage);
+        //设置种子点
+        Log.v("init","seed");
+        int x,y;
+        //SOOURCE点
+        for(i = 0; i < obj.size(); ++i) {
+            x = obj.get(i).x;
+            y = obj.get(i).y;
+            graph.SetSeeds(y,x,TreeType.S);
+        }
+        //sink
+        for(i = 0; i < bkg.size(); ++i) {
+            x = bkg.get(i).x;
+            y = bkg.get(i).y;
+            graph.SetSeeds(y,x,TreeType.T);
+        }
+        Log.v("init","weight");
+        //计算权重
+        graph.CalculateWeight();
+
+        activeNodes = graph.GetActiveNodes();
+        orphans = graph.GetOrphans();
+        //算法主循环
+        while(true)
+        {
+            Log.v("running","============");
+            //grow
+            path = Growth();
+
+            if(path != null) {
+                Augmentation(path);
+
+                Adoption();
+            }else {
+                Log.v("break","stop");
+                break;
+            }
+        }
+        Log.v("init"," visualize");
+        Bitmap res = origin.copy(Config.ARGB_8888,true);
+        boolean [][] isSource = graph.GetMask(TreeType.S);
+        boolean [][] isSink = graph.GetMask(TreeType.T);
+
+        for(i = 0; i < height; ++i)
+        {
+            for(j =0; j < width; ++j)
+            {
+                if(isSource[i][j])
+                    res.setPixel(j,i, Color.BLACK);
+                else
+                    res.setPixel(j,i, Color.WHITE);
+            }
+        }
+        Log.v("done"," visualize");
+        ((ScribbleView)findViewById(R.id.imageView)).lock.unlock();
+        return res;
+    }
+
     //计算采样的次数
     protected static int calculateInSampleSize(
             BitmapFactory.Options options, int reqWidth, int reqHeight) {
@@ -317,7 +466,7 @@ public class MainActivity extends AppCompatActivity
     private class imageProcessTask extends AsyncTask<Bitmap,Void,Bitmap>
     {
         protected Bitmap doInBackground(Bitmap... bitmaps) {
-            return graphcut(bitmaps[0]);
+            return graphcutB(bitmaps[0]);
         }
         protected void onPostExecute(Bitmap res)
         {
@@ -368,9 +517,11 @@ public class MainActivity extends AppCompatActivity
     //启动图片处理
     public void startImageProcess(View view)
     {
-        if(bitmap != null) {
-            ((ScribbleView) findViewById(R.id.imageView)).setSourceImage(graphcut(bitmap));
+        if(bitmap != null)
+        {
+            new imageProcessTask().execute(bitmap);
         }
+
     }
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data)
@@ -397,6 +548,5 @@ public class MainActivity extends AppCompatActivity
         }
         super.onActivityResult(requestCode, resultCode, data);
     }
-
 
 }

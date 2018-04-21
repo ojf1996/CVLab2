@@ -317,22 +317,23 @@ public class ScribbleView extends SurfaceView implements SurfaceHolder.Callback 
     protected Bitmap addMaskToScribble(Bitmap source_)
     {
         lock.lock();
-        //obj
-        int size = mask_.size();
-        Bitmap res = source_.copy(Bitmap.Config.ARGB_8888,true);
-        for(int i = 0; i < size; ++i)
-        {
-            int x = mask_.get(i).x;
-            int y = mask_.get(i).y;
-            res.setPixel(x,y,Color.RED);
-        }
-        //bkg
-        size = mask_bkg.size();
-        for(int i = 0; i < size; ++i)
-        {
-            int x = mask_bkg.get(i).x;
-            int y = mask_bkg.get(i).y;
-            res.setPixel(x,y,Color.GREEN);
+        Bitmap res = null;
+        if(source_ != null) {
+            //obj
+            int size = mask_.size();
+            res = source_.copy(Bitmap.Config.ARGB_8888, true);
+            for (int i = 0; i < size; ++i) {
+                int x = mask_.get(i).x;
+                int y = mask_.get(i).y;
+                res.setPixel(x, y, Color.RED);
+            }
+            //bkg
+            size = mask_bkg.size();
+            for (int i = 0; i < size; ++i) {
+                int x = mask_bkg.get(i).x;
+                int y = mask_bkg.get(i).y;
+                res.setPixel(x, y, Color.GREEN);
+            }
         }
         lock.unlock();
         return res;
