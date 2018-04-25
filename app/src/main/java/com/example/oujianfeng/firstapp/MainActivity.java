@@ -22,6 +22,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Vector;
+import android.graphics.Matrix;
+import android.app.AlertDialog;
+import android.widget.TextView;
+
+import java.util.concurrent.locks.ReentrantLock;
 
 
 import java.io.FileNotFoundException;
@@ -43,6 +48,9 @@ public class MainActivity extends AppCompatActivity
     private Vector<Node> orphans;
     private Node orphan;
 
+    public ReentrantLock lock_ = new ReentrantLock();
+
+    private float ratio = 1.0f;
 
 
     //转为灰度图
@@ -310,6 +318,8 @@ public class MainActivity extends AppCompatActivity
 
         activeNodes = graph.GetActiveNodes();
         orphans = graph.GetOrphans();
+
+
         //算法主循环
         while(true)
         {
@@ -329,15 +339,12 @@ public class MainActivity extends AppCompatActivity
         Log.v("init"," visualize");
         Bitmap res = origin.copy(Config.ARGB_8888,true);
         boolean [][] isSource = graph.GetMask(TreeType.S);
-        boolean [][] isSink = graph.GetMask(TreeType.T);
 
         for(i = 0; i < height; ++i)
         {
             for(j =0; j < width; ++j)
             {
-                if(isSource[i][j])
-                    res.setPixel(j,i, Color.BLACK);
-                else
+                if(!isSource[i][j])
                     res.setPixel(j,i, Color.WHITE);
             }
         }
@@ -414,7 +421,7 @@ public class MainActivity extends AppCompatActivity
 
         //计算降采样的程度
 
-        ops.inSampleSize = calculateInSampleSize(ops,400,400);
+        ops.inSampleSize = calculateInSampleSize(ops,500,500);
 
         //通过降采样解码
         ops.inJustDecodeBounds = false;
@@ -472,6 +479,8 @@ public class MainActivity extends AppCompatActivity
         {
             ScribbleView view = findViewById(R.id.imageView);
             view.setSourceImage(res);
+            findViewById(R.id.imageButton2).setEnabled(true);
+            ((TextView)findViewById(R.id.textView)).setText("处理完成");
         }
     }
 
@@ -497,6 +506,7 @@ public class MainActivity extends AppCompatActivity
     {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        ((TextView)findViewById(R.id.textView)).setText("红色线为obj，绿色为bkg");
     }
 
     /** 用户按下选择图片的按钮*/
@@ -519,7 +529,10 @@ public class MainActivity extends AppCompatActivity
     {
         if(bitmap != null)
         {
-            new imageProcessTask().execute(bitmap);
+            ((TextView)findViewById(R.id.textView)).setText("处理开始，请耐心等待");
+            Bitmap temp = bitmap.copy(Config.ARGB_8888,true);
+            new imageProcessTask().execute(temp);
+            findViewById(R.id.imageButton2).setEnabled(false);
         }
 
     }

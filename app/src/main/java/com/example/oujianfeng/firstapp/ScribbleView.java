@@ -116,7 +116,8 @@ public class ScribbleView extends SurfaceView implements SurfaceHolder.Callback 
         protected void onPostExecute(Bitmap res) {
             scribble = res;
             Canvas canvas = mSurfaceHolder.lockCanvas();
-            canvas.drawBitmap(scribble,0,0,mPaint);
+            if(scribble != null)
+                canvas.drawBitmap(scribble,0,0,mPaint);
             mSurfaceHolder.unlockCanvasAndPost(canvas);
         }
     }
@@ -188,7 +189,8 @@ public class ScribbleView extends SurfaceView implements SurfaceHolder.Callback 
 
         //加载新图片
         Canvas canvas = mSurfaceHolder.lockCanvas();
-        canvas.drawBitmap(source,0,0,mPaint);
+        if(source != null)
+            canvas.drawBitmap(source,0,0,mPaint);
         mSurfaceHolder.unlockCanvasAndPost(canvas);
     }
 
@@ -321,7 +323,10 @@ public class ScribbleView extends SurfaceView implements SurfaceHolder.Callback 
         if(source_ != null) {
             //obj
             int size = mask_.size();
-            res = source_.copy(Bitmap.Config.ARGB_8888, true);
+            if(source_ != null) {
+                res = source_.copy(Bitmap.Config.ARGB_8888, true);
+            } else
+                return null;
             for (int i = 0; i < size; ++i) {
                 int x = mask_.get(i).x;
                 int y = mask_.get(i).y;

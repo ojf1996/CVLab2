@@ -192,9 +192,9 @@ public class Graph {
         int length = deltaS + deltaT;
 
         if(type == TreeType.S) {
-            return lambda * deltaS / length;
+            return -1.0 * lambda * Math.log( deltaS / length);
         }else {
-            return lambda * deltaT / length;
+            return -1.0 * lambda * Math.log( deltaT / length);
         }
     }
 
